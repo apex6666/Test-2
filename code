@@ -1,0 +1,186 @@
+#include "Servo.h"
+#include "pitches.h"
+#include "Wire.h" // For I2C
+#include "LCD.h" // For LCD
+#include "LiquidCrystal_I2C.h" // Added library*
+
+//Set the pins on the I2C chip used for LCD connections
+//ADDR,EN,R/W,RS,D4,D5,D6,D7
+LiquidCrystal_I2C lcd(0x27,2,1,0,4,5,6,7); // 0x27 is the default I2C bus address of the backpack-see article. If it doesn't work, pls change the address to as below.
+//LiquidCrystal_I2C lcd(0x3f,2,1,0,4,5,6,7); 
+
+Servo servoLID;
+
+// notes in the melody:
+int melody[] = {
+  NOTE_A4, 
+
+};
+
+// note durations: 4 = quarter note, 8 = eighth note, etc.:
+int noteDurations[] = {
+    4,
+
+};
+
+
+
+const int trigLID = 5;  //pin number for the Ultrasonic Trigger for Lid opnening control
+const int echoLID = 6; //pin number for the Ultrasonic Echo for Lid opnening control
+const int trigGARBAGE = 8;  //pin number for the Ultrasonic Trigger for garbage height measurement
+const int echoGARBAGE = 9; //pin number for the Ultrasonic Echo for garbage height measurement
+const int buzzer = 12; //pin number for buzzer
+
+int trigDistLID = 50; //unit in cm. The blocking distance required forthe dustbin lid to open
+int dustbinHeight = 30; //unit in cm. The height of the dustbin from the ground. Calculated based on the level of the ultrasonic sensor for the garbage measurment
+int percentTrigger = 80; //unit in percent. The %fullness allowed before the buzzer get trigger
+
+
+
+
+void setup() {
+pinMode(trigLID, OUTPUT);
+pinMode(echoLID, INPUT);
+pinMode(trigGARBAGE, OUTPUT);
+pinMode(echoGARBAGE, INPUT);
+pinMode(buzzer, OUTPUT);
+
+
+servoLID.attach(3);  //the servo motor input is connected to D3
+servoLID.write(0);  //the initial angle when the lid is closed
+
+Serial.begin(9600);
+lcd.begin (16,2); // 16 x 2 LCD module
+lcd.setBacklightPin(3,POSITIVE); // BL, BL_POL
+lcd.setBacklight(HIGH);
+lcd.clear();
+lcd.setCursor(0,0);
+lcd.print("PROJEK RBT");
+lcd.setCursor(0,1);
+lcd.print("SMART DUSTBIN");
+delay(2000);
+digitalWrite(buzzer,HIGH);
+delay(100);
+digitalWrite(buzzer,LOW);
+delay(100);
+digitalWrite(buzzer,HIGH);
+delay(100);
+digitalWrite(buzzer,LOW);
+lcd.setBacklight(LOW);
+
+}
+
+void loop() {
+  
+  
+int distLID ;  // unit in cm. The distance between the lid and blocking object such as hand
+int distGARBAGE = 0; //the height of the dustbin from the ground
+int percentFull; //percent full of the garbage
+
+
+distGARBAGE = checkDistance(trigGARBAGE, echoGARBAGE);//the distance between the garbage and the ultrasonic sensor
+
+//the height of the garbage = the height of dustbin (dustbinHeight)- the distance between the garbage and sensor (distGARBAGE)
+
+percentFull = (dustbinHeight - distGARBAGE)*100/(dustbinHeight);
+percentFull = constrain(percentFull, 0, 100);
+
+Serial.print("The dustbin is ");
+Serial.print(percentFull);
+Serial.print("% Full. ");
+
+ if (percentFull > percentTrigger){
+     Serial.println("GARBAGE FULL!! CLEAN DUSTBIN! ");
+     lcd.setBacklightPin(3,POSITIVE); // BL, BL_POL
+     lcd.setBacklight(HIGH);
+     lcd.clear();
+     lcd.setCursor(0,0);
+     lcd.print("Dustbin ");
+     lcd.print(percentFull);
+     lcd.print("% Full");
+     lcd.setCursor(0,1);
+     lcd.print("CLEAR DUSTBIN!");
+    
+ 
+     for (int thisNote = 0; thisNote < 8; thisNote++) {
+     //to calculate the note duration, take one second. Divided by the note type
+     int noteDuration = 1000 / noteDurations [thisNote];
+     tone(buzzer, melody [thisNote], noteDuration);
+     //to distinguish the notes, set a minimum time between them
+     //the note's duration +30% seems to work well
+     int pauseBetweenNotes = noteDuration * 1.30;
+     delay (pauseBetweenNotes);
+     //stop the tone playing
+     noTone(buzzer);
+                  }
+   
+  } else {
+  Serial.print("AMPLE DUSTBIN SPACE. ");
+  digitalWrite(buzzer, LOW);
+  lcd.setBacklight(LOW);
+  lcd.setBacklightPin(3,POSITIVE); // BL, BL_POL
+  lcd.clear();
+  lcd.setCursor(0,0);
+  lcd.print("Dustbin ");
+  lcd.print(percentFull);
+  lcd.print("% Full");
+  lcd.setCursor(0,1);
+  lcd.print("PLEASE USE ME!");
+ 
+  distLID = checkDistance(trigLID,echoLID);
+  Serial.print("Object to LID distance = ");
+  Serial.print(distLID);
+  Serial.print("cm. ");
+    if (distLID < trigDistLID){
+       Serial.println("LID Opened...");
+       lcd.setBacklightPin(3,POSITIVE); // BL, BL_POL
+       lcd.setBacklight(HIGH);
+       lcd.clear();
+       lcd.setCursor(0,0);
+       lcd.print("Dustbin ");
+       lcd.print(percentFull);
+       lcd.print("% Full");
+       lcd.setCursor(0,1);
+       lcd.print("OPENING LID NOW!");
+       digitalWrite(buzzer,HIGH);
+       delay(100);
+       digitalWrite(buzzer,LOW);
+       delay(100);
+       digitalWrite(buzzer,HIGH);
+       delay(100);
+       digitalWrite(buzzer,LOW);
+       servoLID.write(90);
+       delay(3000);
+       lcd.clear();
+       lcd.setCursor(0,0);
+       lcd.print("Dustbin ");
+       lcd.print(percentFull);
+       lcd.print("% Full");
+       lcd.setCursor(0,1);
+       lcd.print("LID CLOSING!");
+        for(int position = 90; position >= 0; position -=2)
+        {
+        servoLID.write(position);  // Move to next position
+        delay(20);               // Short pause to allow it to move
+         }
+       servoLID.write(0);
+       delay(1000);
+       lcd.setBacklight(LOW);
+    } else {
+       Serial.println("LID Closed.");
+       servoLID.write(0);
+          }
+  }
+ 
+ }
+
+int checkDistance (int trigPin, int echoPin){
+  digitalWrite(trigPin,LOW);
+  delayMicroseconds(2);
+  digitalWrite(trigPin,HIGH);
+  delayMicroseconds(10);
+  digitalWrite(trigPin, LOW);
+  long duration = pulseIn(echoPin, HIGH);
+  int distance = duration*0.034/2; 
+  return distance;
+}
